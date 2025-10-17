@@ -1,8 +1,23 @@
 import os
 import requests
 from dotenv import load_dotenv
+import subprocess
+from langchain_groq import ChatGroq
+
+from langgraph.graph import StateGraph, START, END
+
+from langgraph.prebuilt import tools_condition, ToolNode
+
+from langgraph.graph import MessagesState
+
+import asyncio
+
+from mcp_use.client import MCPClient
+
+from mcp_use.adapters.langchain_adapter import LangChainAdapter
 
 load_dotenv()
+PORT = 8090
 
 def check_spotify_credentials():
 
@@ -19,6 +34,7 @@ def check_spotify_credentials():
     client_secret = os.getenv("SPOTIFY_CLIENT_SECRET")
 
     redirect_uri = os.getenv("SPOTIFY_REDIRECT_URI")
+
 
     
     # Check if credentials exist
@@ -136,6 +152,118 @@ def main():
 
         print("\n⚠️  Please fix invalid credentials before proceeding.")
 
+def kill_processes_on_port(port = PORT):
+
+    """Kill processes on Windows"""
+
+    try:
+
+        # Find processes using the port
+
+        result = subprocess.run(['netstat', '-ano'],
+
+                              capture_output=True, text=True, check=False)
+
+       
+
+        if result.returncode == 0:
+
+            lines = result.stdout.split('\n')
+
+            pids_to_kill = []
+
+           
+
+            for line in lines:
+
+                if f':{port}' in line and 'LISTENING' in line:
+
+                    parts = line.split()
+
+                    if len(parts) >= 5:
+
+                        pid = parts[-1]  # Last column is PID
+
+                        if pid.isdigit():
+
+                            pids_to_kill.append(pid)
+
+           
+
+            if pids_to_kill:
+
+                print(f"Found processes on port {port}: {pids_to_kill}")
+
+                for pid in pids_to_kill:
+
+                    try:
+
+                        subprocess.run(['taskkill', '/F', '/PID', pid],
+
+                                     check=True, capture_output=True)
+
+                        print(f"Killed process {pid} on port {port}")
+
+                    except subprocess.CalledProcessError as e:
+
+                        print(f"Failed to kill process {pid}: {e}")
+
+            else:
+
+                print(f"No processes found on port {port}")
+
+        else:
+
+            print(f"Failed to run netstat: {result.stderr}")
+
+           
+
+    except Exception as e:
+
+        print(f"Error killing processes on port {port}: {e}")
+
+async def create_graph():
+
+    #create client
+
+    client = MCPClient.from_config_file("mcp_config.json")
+
+    #create adapter instance
+
+    adapter = LangChainAdapter()
+
+    #load in tools from the MCP client
+
+    tools = await adapter.create_tools(client)
+
+    tools = [t for t in tools if t.name not in['getNowPlaying', 'getRecentlyPlayed', 'getQueue', 'playMusic', 'pausePlayback', 'skipToNext', 'skipToPrevious', 'resumePlayback', 'addToQueue', 'getMyPlaylists','getUsersSavedTracks', 'saveOrRemoveAlbum', 'checkUsersSavedAlbums']]
+
+      #define llm
+    llm = ChatGroq(model='meta-llama/llama-4-scout-17b-16e-instruct')
+
+    #bind tools
+
+    llm_with_tools = llm.bind_tools(tools, parallel_tool_calls=False)
+
+    system_msg = """You are a helpful assistant that has access to Spotify. You can create playlists, find songs, and provide music recommendations.
+
+
+
+    When creating playlists:
+
+    - If the user does not specify playlist size, limit playlist lengths to only 10 songs
+
+    - Always provide helpful music recommendations based on user preferences and create well-curated playlists with appropriate descriptions
+
+    - When the User requests a playlist to be created, ensure that there are actually songs added to the playlist you create
+
+    """
+
+ #define assistant
+
+def assistant(state: MessagesState):
+
+    return {"messages": [llm_with_tools.invoke([system_msg] + state["messages"])]}
 
 
 if __name__ == "__main__":
