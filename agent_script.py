@@ -124,34 +124,6 @@ def check_groq_credentials():
         print(f" An error occured while contacting the Groq API: {e}")
         return False
 
-# Example of how to run the function
-
-def main():
-
-    print("Checking API credentials...\n")
-
-    spotify_valid = check_spotify_credentials()
-
-    groq_valid = check_groq_credentials()
-
-    
-
-    print(f"\nCredentials Summary:")
-
-    print(f"Spotify: {'✅ Valid' if spotify_valid else '❌ Invalid'}")
-
-    print(f"Groq: {'✅ Valid' if groq_valid else '❌ Invalid'}")
-
-    
-
-    if spotify_valid and groq_valid:
-
-        print("\n🎉 All credentials are working!")
-
-    else:
-
-        print("\n⚠️  Please fix invalid credentials before proceeding.")
-
 def kill_processes_on_port(port = PORT):
 
     """Kill processes on Windows"""
@@ -223,49 +195,92 @@ def kill_processes_on_port(port = PORT):
         print(f"Error killing processes on port {port}: {e}")
 
 async def create_graph():
-
-    #create client
-
+    # Create client
     client = MCPClient.from_config_file("mcp_config.json")
-
-    #create adapter instance
-
+    
+    # Create adapter instance
     adapter = LangChainAdapter()
-
-    #load in tools from the MCP client
-
+    
+    # Load in tools from the MCP client
     tools = await adapter.create_tools(client)
-
-    tools = [t for t in tools if t.name not in['getNowPlaying', 'getRecentlyPlayed', 'getQueue', 'playMusic', 'pausePlayback', 'skipToNext', 'skipToPrevious', 'resumePlayback', 'addToQueue', 'getMyPlaylists','getUsersSavedTracks', 'saveOrRemoveAlbum', 'checkUsersSavedAlbums']]
-
-      #define llm
+    
+    tools = [t for t in tools if t.name not in ['getNowPlaying', 'getRecentlyPlayed', 'getQueue', 'playMusic', 'pausePlayback', 'skipToNext', 'skipToPrevious', 'resumePlayback', 'addToQueue', 'getMyPlaylists', 'getUsersSavedTracks', 'saveOrRemoveAlbum', 'checkUsersSavedAlbums']]
+    
+    # Define llm
     llm = ChatGroq(model='meta-llama/llama-4-scout-17b-16e-instruct')
-
-    #bind tools
-
+    
+    # Bind tools
     llm_with_tools = llm.bind_tools(tools, parallel_tool_calls=False)
-
+    
     system_msg = """You are a helpful assistant that has access to Spotify. You can create playlists, find songs, and provide music recommendations.
 
-
-
     When creating playlists:
-
     - If the user does not specify playlist size, limit playlist lengths to only 10 songs
-
     - Always provide helpful music recommendations based on user preferences and create well-curated playlists with appropriate descriptions
-
     - When the User requests a playlist to be created, ensure that there are actually songs added to the playlist you create
-
     """
+    
+    # Define assistant (INSIDE create_graph, after llm_with_tools and system_msg)
+    def assistant(state: MessagesState):
+        return {"messages": [llm_with_tools.invoke([system_msg] + state["messages"])]}
+    
+    # Graph
+    builder = StateGraph(MessagesState)
+    
+    # Define nodes: these do the work
+    builder.add_node("assistant", assistant)
+    builder.add_node("tools", ToolNode(tools))
+    
+    # Define edges: these determine the control flow
+    builder.add_edge(START, "assistant")
+    builder.add_conditional_edges(
+        "assistant",
+        tools_condition,
+    )
+    builder.add_edge("tools", "assistant")
+    
+    graph = builder.compile()
+    
+    return graph
 
- #define assistant
+# Example of how to run the function
 
-def assistant(state: MessagesState):
+async def main():
+    print("Checking API credentials...\n")
 
-    return {"messages": [llm_with_tools.invoke([system_msg] + state["messages"])]}
+    spotify_valid = check_spotify_credentials()
+    groq_valid = check_groq_credentials()
+
+    print(f"\nCredentials Summary:")
+    print(f"Spotify: {'✅ Valid' if spotify_valid else '❌ Invalid'}")
+    print(f"Groq: {'✅ Valid' if groq_valid else '❌ Invalid'}")
+
+    if spotify_valid and groq_valid:
+        print("\n🎉 All credentials are working!")
+    else:
+        print("\n⚠️  Please fix invalid credentials before proceeding.")
+        return  # Exit if credentials invalid
+
+    kill_processes_on_port(PORT)
+    
+    agent = await create_graph()
+
+    while True:
+        final_text = ""
+        message = input("User: ")
+        
+        # Exit condition
+        if message.lower() in ['exit', 'quit', 'q']:
+            print("Goodbye!")
+            break
+        
+        # Invoke the agent with the user's message
+        response = await agent.ainvoke({"messages": [("user", message)]})
+        
+        # Extract and print the assistant's response
+        assistant_message = response["messages"][-1].content
+        print(f"Assistant: {assistant_message}\n")
 
 
 if __name__ == "__main__":
-
-    main()
+    asyncio.run(main())

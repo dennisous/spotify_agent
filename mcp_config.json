@@ -6,7 +6,7 @@
 
       "command": "node",
 
-      "args": ["C:/Users/denni/Documents/spotify_agent/spotify-mcp-server", "build/index.js"]
+      "args": ["C:/Users/denni/Documents/spotify_agent/spotify-mcp-server/build/index.js"]
 
     }
 
