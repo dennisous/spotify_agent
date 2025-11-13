@@ -214,15 +214,71 @@ async def create_graph():
     
     system_msg = """You are a helpful assistant that has access to Spotify. You can create playlists, find songs, and provide music recommendations.
 
+    CRITICAL TOOL CALLING RULES:
+    - When calling tools, provide parameter values DIRECTLY without any wrapper objects
+    - CORRECT format: {"name": "My Playlist", "limit": 5, "public": false}
+    - WRONG format: {"name": {"name": "My Playlist"}, "limit": {"limit": 5}}
+    - Pass raw values only: strings as "text", numbers as 5, booleans as true/false
+
     When creating playlists:
     - If the user does not specify playlist size, limit playlist lengths to only 10 songs
     - Always provide helpful music recommendations based on user preferences and create well-curated playlists with appropriate descriptions
     - When the User requests a playlist to be created, ensure that there are actually songs added to the playlist you create
-    """
-    
-    # Define assistant (INSIDE create_graph, after llm_with_tools and system_msg)
+"""
+    def fix_tool_call_parameters(tool_calls):
+        if not tool_calls:
+            return tool_calls
+        
+        fixed_calls = []
+        for call in tool_calls:
+            fixed_call = call.copy()
+            
+            if 'args' in fixed_call and isinstance(fixed_call['args'], dict):
+                fixed_args = {}
+                for key, value in fixed_call['args'].items():
+                    # Handle both {"description": val} and {"key": {"key": val}} patterns
+                    if isinstance(value, dict):
+                        # Try "description" key first
+                        if 'description' in value:
+                            fixed_args[key] = value['description']
+                        # Try the key itself (e.g., {"limit": {"limit": 5}})
+                        elif key in value:
+                            fixed_args[key] = value[key]
+                        # If single-key dict, extract the value
+                        elif len(value) == 1:
+                            fixed_args[key] = list(value.values())[0]
+                        else:
+                            fixed_args[key] = value
+                    else:
+                        fixed_args[key] = value
+                
+                fixed_call['args'] = fixed_args
+            
+            fixed_calls.append(fixed_call)
+        
+        return fixed_calls
+        # Define assistant (INSIDE create_graph, after llm_with_tools and system_msg)
     def assistant(state: MessagesState):
-        return {"messages": [llm_with_tools.invoke([system_msg] + state["messages"])]}
+        try:
+            response = llm_with_tools.invoke([system_msg] + state["messages"])
+            
+            # Fix malformed tool calls
+            if hasattr(response, 'tool_calls') and response.tool_calls:
+                print(f"\n🔧 Fixing {len(response.tool_calls)} tool call(s)...")
+                fixed_tool_calls = fix_tool_call_parameters(response.tool_calls)
+                response.tool_calls = fixed_tool_calls
+                
+                for i, call in enumerate(fixed_tool_calls):
+                    print(f"   Tool {i+1}: {call.get('name', 'unknown')} with args: {call.get('args', {})}")
+            
+            return {"messages": [response]}
+        
+        except Exception as e:
+            print(f"❌ Error in assistant: {e}")
+            from langchain_core.messages import AIMessage
+            error_msg = AIMessage(content=f"I encountered an error: {str(e)}. Please try rephrasing your request.")
+            return {"messages": [error_msg]}
+                
     
     # Graph
     builder = StateGraph(MessagesState)
@@ -242,6 +298,13 @@ async def create_graph():
     graph = builder.compile()
     
     return graph
+
+async def invoke_our_graph(agent, st_messages):
+
+    response = await agent.ainvoke({"messages": st_messages})
+
+    return response
+
 
 # Example of how to run the function
 
