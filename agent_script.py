@@ -40,7 +40,7 @@ def check_spotify_credentials():
     # Check if credentials exist
 
     if not all ([client_id, client_secret, redirect_uri]):
-        print("❌ Missing Spotify credentials in .env file")
+        print("âŒ Missing Spotify credentials in .env file")
         
         return False
 
@@ -70,17 +70,17 @@ def check_spotify_credentials():
         response = requests.post(auth_url, headers = auth_headers, data = auth_data)
 
         if response.status_code == 200:
-            print("✅ Spotify API credentials are valid.")
+            print("âœ… Spotify API credentials are valid.")
             return True
         else:
-            print(f"❌ Spotify API credentials are invalid. Status Code: {response.status_code}")
+            print(f"âŒ Spotify API credentials are invalid. Status Code: {response.status_code}")
 
             print(f"Response: {response.json()}")
 
             return False
 
     except Exception as e:
-        print(f"❌ An error occurred while contacting the Spotify API: {e}")
+        print(f"âŒ An error occurred while contacting the Spotify API: {e}")
 
         return False
 
@@ -113,10 +113,10 @@ def check_groq_credentials():
         response = requests.get(models_url, headers = headers)
         # A 200 status code means the request was successful and the key is valid.
         if response.status_code  == 200:
-            print("✅ Groq API key is valid.")
+            print("âœ… Groq API key is valid.")
             return True
         else:
-            print(f"❌ Groq API key is invalid. Status Code: {response.status_code}")
+            print(f"âŒ Groq API key is invalid. Status Code: {response.status_code}")
             print(f"      Response: {response.json()}")
             return False
             # If the key is invalid, Groq typically returns a 401 Unauthorized status.
@@ -220,10 +220,17 @@ async def create_graph():
     - WRONG format: {"name": {"name": "My Playlist"}, "limit": {"limit": 5}}
     - Pass raw values only: strings as "text", numbers as 5, booleans as true/false
 
-    When creating playlists:
+    When creating playlists, follow this EXACT workflow:
+    1. First, use searchSpotify to find songs matching the user's request
+    2. Then, use createPlaylist to create an empty playlist with a name and description
+    3. Then, use addTracksToPlaylist to add the track URIs from your search results
+    4. Finally, include the playlist URL in your response
+    
+    Playlist creation rules:
     - If the user does not specify playlist size, limit playlist lengths to only 10 songs
     - Always provide helpful music recommendations based on user preferences and create well-curated playlists with appropriate descriptions
-    - When the User requests a playlist to be created, ensure that there are actually songs added to the playlist you create
+    - IMPORTANT: You MUST call addTracksToPlaylist after creating the playlist - never leave a playlist empty
+    - IMPORTANT: After creating and populating a playlist, you MUST include the Spotify playlist URL in your response. The createPlaylist tool returns an object with 'id' and 'external_urls'. Always mention the URL like: "Listen here: https://open.spotify.com/playlist/[playlist_id]"
 """
     def fix_tool_call_parameters(tool_calls):
         if not tool_calls:
@@ -264,7 +271,7 @@ async def create_graph():
             
             # Fix malformed tool calls
             if hasattr(response, 'tool_calls') and response.tool_calls:
-                print(f"\n🔧 Fixing {len(response.tool_calls)} tool call(s)...")
+                print(f"\nðŸ”§ Fixing {len(response.tool_calls)} tool call(s)...")
                 fixed_tool_calls = fix_tool_call_parameters(response.tool_calls)
                 response.tool_calls = fixed_tool_calls
                 
@@ -274,7 +281,7 @@ async def create_graph():
             return {"messages": [response]}
         
         except Exception as e:
-            print(f"❌ Error in assistant: {e}")
+            print(f"âŒ Error in assistant: {e}")
             from langchain_core.messages import AIMessage
             error_msg = AIMessage(content=f"I encountered an error: {str(e)}. Please try rephrasing your request.")
             return {"messages": [error_msg]}
@@ -315,13 +322,13 @@ async def main():
     groq_valid = check_groq_credentials()
 
     print(f"\nCredentials Summary:")
-    print(f"Spotify: {'✅ Valid' if spotify_valid else '❌ Invalid'}")
-    print(f"Groq: {'✅ Valid' if groq_valid else '❌ Invalid'}")
+    print(f"Spotify: {'âœ… Valid' if spotify_valid else 'âŒ Invalid'}")
+    print(f"Groq: {'âœ… Valid' if groq_valid else 'âŒ Invalid'}")
 
     if spotify_valid and groq_valid:
-        print("\n🎉 All credentials are working!")
+        print("\nðŸŽ‰ All credentials are working!")
     else:
-        print("\n⚠️  Please fix invalid credentials before proceeding.")
+        print("\nâš ï¸  Please fix invalid credentials before proceeding.")
         return  # Exit if credentials invalid
 
     kill_processes_on_port(PORT)

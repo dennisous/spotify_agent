@@ -32,15 +32,17 @@ app = FastAPI(
 
 # Step 4: Define Request/Response Models
 class ChatQuery(BaseModel):
-    message: str
+    input: List[Dict[str, Any]]
 
 # Step 5: Create API Endpoint (NOT indented under the class)
 @app.post("/chat")
-async def chat(query: ChatQuery):  # Changed Query to ChatQuery
+async def chat(query: ChatQuery):
     agent = app.state.agent
     if agent is None:
         return {"error": "Agent not initialized"}
-    
-    response = await invoke_our_graph(agent, [("user", query.message)])  # Changed query.input to query.message
+
+    # Convert dict messages to tuples format
+    messages = [(msg.get("type", "human"), msg.get("content", "")) for msg in query.input]
+    response = await invoke_our_graph(agent, messages)
     print(response)
     return {"response": response}
