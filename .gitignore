@@ -10,3 +10,28 @@ env/
 
 pyproject.toml
 
+pyc/
+
+.pyc # Caches
+__pycache__/
+
+# IDE-specific files
+.vscode/
+.idea/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Python-specific files
+*.py[co]
+*.egg-info/
+dist/
+build/
+
+# Jupyter Notebook-specific files
+.ipynb_checkpoints/
+
+# My custom files
+.pytest_cache/
+
